@@ -1,0 +1,22 @@
+{
+  "name": "fraudlens",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace @fraudlens/web",
+    "build": "npm run build --workspace @fraudlens/web",
+    "start": "npm run start --workspace @fraudlens/web",
+    "lint": "npm run lint --workspace @fraudlens/web",
+    "typecheck": "npm run typecheck --workspace @fraudlens/web",
+    "check": "npm run lint && npm run typecheck && npm run build",
+    "db:up": "docker compose up -d --wait",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f mongodb"
+  }
+}
