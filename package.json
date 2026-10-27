@@ -14,9 +14,10 @@
     "start": "npm run start --workspace @fraudlens/web",
     "lint": "npm run lint --workspace @fraudlens/web",
     "typecheck": "npm run typecheck --workspace @fraudlens/web",
-    "check": "npm run lint && npm run typecheck && npm run build",
+    "check": "npm run lint && npm run test && npm run typecheck && npm run build",
     "db:up": "docker compose up -d --wait",
     "db:down": "docker compose down",
-    "db:logs": "docker compose logs -f mongodb"
+    "db:logs": "docker compose logs -f mongodb",
+    "test": "npm run test --workspace @fraudlens/web"
   }
 }

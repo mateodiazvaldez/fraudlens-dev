@@ -1,23 +1,53 @@
-# Arquitectura inicial
+# Arquitectura de FraudLens
+
+FraudLens usa **Vercel** para alojar la aplicación y **MongoDB Atlas** para persistir los datos de producción. Durante el desarrollo usamos MongoDB local con Docker Compose.
+
+## Aplicación y entornos
 
 ```mermaid
 flowchart LR
-    Browser[Navegador] --> Next[Next.js: React + API routes]
-    Next --> Mongo[MongoDB Atlas / MongoDB local]
-    Next --> TypeSafe[TypeSafe: Jev vía AI SDK]
+    Client[Sistema cliente / navegador] --> Next[Next.js en Vercel: frontend y API]
+    Next -->|Mongoose / MONGODB_URI| Atlas[MongoDB Atlas]
+    Local[Next.js local] -->|Mongoose / MONGODB_URI local| Compose[MongoDB en Docker Compose]
 ```
 
-Un monorepo npm con una sola aplicación en `apps/web` permite compartir tipos y desplegar frontend y API juntos. No se necesita un orquestador adicional mientras haya una única app.
+Un monorepo npm contiene una única aplicación desplegable en `apps/web`. Next.js App Router reúne el frontend React y los endpoints HTTP; las rutas que usan Mongoose se ejecutan con runtime Node.js. Frontend y backend se despliegan juntos en Vercel.
+
+| Entorno | Aplicación | Base de datos | Configuración |
+| --- | --- | --- | --- |
+| Desarrollo local | Next.js con `npm run dev` | MongoDB 8 con `npm run db:up` | `apps/web/.env.local` |
+| Producción | Proyecto `fraudlens` en Vercel | Cluster gratuito M0 `fraudlens` en MongoDB Atlas | Variables del proyecto en Vercel |
+
+La URL de producción es [fraudlens-two.vercel.app](https://fraudlens-two.vercel.app). Atlas aloja la base `fraudlens`; la aplicación utiliza un usuario exclusivo con permisos `readWrite` sobre esa base. `MONGODB_URI` se guarda como variable sensible en Vercel y nunca se publica en el cliente ni se incluye en Git.
+
+## Administración mediante conectores de IA
+
+Usamos los conectores de **Vercel** y **MongoDB Atlas** disponibles en el asistente de IA para interactuar con las cuentas conectadas durante el desarrollo y la operación del proyecto.
+
+```mermaid
+flowchart LR
+    Assistant[Asistente de IA] --> VC[Conector de Vercel]
+    Assistant --> MC[Conector de MongoDB Atlas]
+    VC --> Vercel[Proyectos y despliegues en Vercel]
+    MC --> Atlas[Recursos de MongoDB Atlas]
+```
+
+- **Conector de Vercel:** permite consultar proyectos y despliegues, configurar variables de entorno, crear despliegues y revisar su estado. Se utilizó para preparar el proyecto y desplegar la aplicación.
+- **Conector de MongoDB Atlas:** permite inspeccionar proyectos y clusters y administrar usuarios de base de datos y listas de acceso de red. Se utilizó para configurar el usuario de la aplicación y el acceso desde Vercel. El cluster M0 se creó desde la consola de Atlas porque el conector disponible no ofrecía esa modalidad gratuita.
+
+Los conectores actúan con los permisos de las cuentas conectadas y las autorizaciones del usuario. Son herramientas del asistente para administrar infraestructura; las solicitudes de la aplicación acceden directamente a MongoDB mediante Mongoose. No es necesario que el asistente esté conectado para que FraudLens funcione.
+
+Estos conectores son independientes de **Vercel AI SDK / TypeSafe**, que están preparados en el código para futuras evaluaciones de IA. El endpoint actual devuelve un resultado fijo y no hace inferencia.
 
 ## Límites actuales
 
-El diagrama muestra las integraciones previstas. La pantalla inicial y `/api/health` no acceden a MongoDB ni a TypeSafe. Las conexiones se inicializan cuando un futuro caso de uso las invoque. No hay contratos de negocio, esquemas ni endpoints de IA.
+La pantalla inicial y `/api/health` no acceden a MongoDB ni a TypeSafe. CU-01 (`POST /api/transaction-evaluations`) valida el JSON, llama al servicio de evaluación y persiste un documento TransactionEvaluation mediante connectDB(). Devuelve el ID autogenerado y el resultado fijo solo después de una escritura exitosa. No invoca TypeSafe ni ejecuta reglas.
 
 ## Persistencia
 
 `connectDB()` valida `MONGODB_URI` en el servidor, reutiliza la conexión global de Mongoose y comparte la promesa entre llamadas concurrentes. Libera la promesa al finalizar, incluso si falla, para permitir nuevos intentos. Cada instancia de servidor tiene su propio pool (máximo cinco conexiones); no existe un pool global entre funciones de Vercel.
 
-Compose usa un volumen persistente y solo expone MongoDB en loopback. No configura replica set; si un caso de uso requiere transacciones, deberá incorporarse esa configuración. Atlas se configura externamente.
+Compose usa un volumen persistente y solo expone MongoDB en loopback. No configura replica set; si un caso de uso requiere transacciones, deberá incorporarse esa configuración. Atlas se administra como servicio externo a Vercel. Para este MVP se autorizó la entrada desde `0.0.0.0/0` para permitir conexiones desde Vercel sin IP de salida fija; las conexiones siguen requiriendo autenticación. Este acceso puede restringirse cuando se disponga de una estrategia de red con egreso fijo.
 
 ## IA
 
@@ -28,3 +58,7 @@ Compose usa un volumen persistente y solo expone MongoDB en loopback. No configu
 - [Next.js App Router](https://nextjs.org/docs/app/getting-started/installation)
 - [Mongoose con Next.js](https://mongoosejs.com/docs/nextjs.html)
 - [TypeSafe en AI SDK](https://ai-sdk.dev/providers/ai-sdk-providers/typesafe-ai)
+
+## CU-01
+
+El contrato y su validación están en `src/server/services/transaction-evaluation-input.ts`; la ruta gestiona HTTP y el servicio coordina la persistencia. El modelo está en `src/server/models/transaction-evaluation.ts`, colección `transaction_evaluations`. Se almacena la entrada completa junto con risk_score, decision, rules_applied y timestamps. Cada solicitud crea una evaluación independiente; no hay deduplicación, autenticación ni motor de reglas en esta etapa.

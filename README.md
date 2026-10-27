@@ -2,7 +2,7 @@
 
 **El punto de partida del MVP. Un repositorio, una app, un deploy.**
 
-Esta versión deja lista la infraestructura para empezar a construir. El dominio y los casos de uso se definirán después: todavía no hay entidades, esquemas, reglas de negocio, autenticación ni flujos de IA.
+Implementa CU-01: recibe una transacción, persiste su evaluación en MongoDB y devuelve un resultado fijo. No ejecuta reglas ni inferencia de IA.
 
 ## Stack
 
@@ -17,6 +17,12 @@ Esta versión deja lista la infraestructura para empezar a construir. El dominio
 | Calidad | ESLint, TypeScript y build en GitHub Actions |
 
 Las versiones exactas resueltas quedan en `package-lock.json`. Usamos Node.js 24.
+
+## Arquitectura e infraestructura
+
+La aplicación se aloja en **Vercel** y usa **MongoDB Atlas** en producción. Para desarrollo usamos MongoDB local con Docker Compose. Administramos los servicios mediante los conectores de Vercel y MongoDB Atlas del asistente de IA; la aplicación se conecta directamente a MongoDB con Mongoose.
+
+Ver [arquitectura de FraudLens](docs/architecture.md) para los diagramas, entornos y el papel de cada conector.
 
 ## Arranque local
 
@@ -50,12 +56,12 @@ fraudlens/
 │   │   ├── hooks/                # Hooks de React (vacío)
 │   │   ├── types/                # Tipos compartidos (vacío)
 │   │   ├── lib/
-│   │   │   ├── db/mongoose.ts    # Conexión, sin schemas
+│   │   │   ├── db/mongoose.ts    # Conexión compartida
 │   │   │   └── ai/typesafe.ts    # Configuración de Jev
 │   │   └── server/
-│   │       ├── models/           # Reservado; sin modelado
+│   │       ├── models/           # Modelo TransactionEvaluation
 │   │       ├── repositories/     # Reservado
-│   │       └── services/         # Reservado
+│   │       └── services/         # Validación y evaluación de transacciones
 │   └── .env.example
 ├── docs/architecture.md
 ├── .github/workflows/ci.yml
@@ -112,12 +118,56 @@ Referencia: [TypeSafe en AI SDK](https://ai-sdk.dev/providers/ai-sdk-providers/t
 
 Frontend y API se publican juntos. Atlas sigue siendo un servicio administrado externo; no se despliega Docker en Vercel. El scaffold no crea un cluster de Atlas ni realiza un deploy automáticamente.
 
-## Próximo paso
+## CU-01 — Analizar una transacción
 
-Definir los casos de uso de FraudLens. A partir de eso se diseñarán entidades, contratos de API, pantallas y decisiones de IA.
+`POST /api/transaction-evaluations` con `Content-Type: application/json`:
+
+```bash
+curl -i http://localhost:3000/api/transaction-evaluations \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "transaction_id": "tx-001",
+    "user_id": "user-001",
+    "transaction_datetime": "2026-10-27T12:30:00-03:00",
+    "amount": 25,
+    "currency": "ARS",
+    "operation_type": "PURCHASE",
+    "merchant": "Example merchant",
+    "country": "AR",
+    "cardholder_present": false,
+    "card_present": false
+  }'
+```
+
+Los diez campos son obligatorios. Los identificadores y merchant son strings no vacíos; amount es un número positivo; currency usa tres letras mayúsculas y country dos. transaction_datetime debe ser ISO 8601 con zona horaria. Solo se admite PURCHASE; los flags deben ser booleanos. Los campos adicionales se ignoran.
+
+Devuelve `201 Created` después de guardar en `transaction_evaluations`:
+
+```json
+{
+  "transaction_evaluation_id": "<MongoDB ObjectId autogenerado>",
+  "transaction_id": "tx-001",
+  "risk_score": 0.6,
+  "decision": "BLOCK",
+  "rules_applied": ["block_if_over_50"]
+}
+```
+
+El documento conserva todos los campos de entrada, la fecha como Date, el resultado y created_at/updated_at. El resultado es fijo incluso para montos inferiores a 50: el nombre de la regla es parte del stub y no implica ejecución. Cada POST crea una evaluación nueva, incluso con el mismo transaction_id; todavía no hay idempotencia ni autenticación.
+
+Errores: `400` para JSON o campos inválidos, `415` para otro Content-Type y `503` si no se puede persistir. Los errores no incluyen datos de la transacción ni detalles internos de MongoDB.
+
+`npm test` ejecuta la validación del contrato; `npm run check` también la incluye. Para desarrollo usar `npm run db:up` y el URI local de `.env.example`; producción sigue usando Atlas.
+
 
 ## Estado de verificación inicial
 
 Se verificaron lint, tipos, build, la página inicial, `/api/health` y MongoDB local. Atlas y la inferencia real de TypeSafe requieren credenciales y no se probaron.
 
 La auditoría de producción (`npm audit --omit=dev`) no reportó vulnerabilidades. La auditoría completa reportó cinco entradas de severidad alta por un mismo aviso transitivo de `braces`, utilizado por el linter de Next.js ([GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm)). No había una versión corregida disponible al preparar esta base; revisar al actualizar dependencias.
+
+## Postman
+
+Importar [la colección de Postman](postman/FraudLens.postman_collection.json). Incluye health, creación de evaluaciones y un ejemplo de validación fallida, con verificaciones de respuesta. La variable `base_url` apunta por defecto a `http://localhost:3000`. El POST crea documentos persistentes en la base configurada.
+
+Todo cambio de endpoints debe mantener esta colección actualizada en el mismo PR, según `AGENTS.md`.

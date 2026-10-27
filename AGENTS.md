@@ -29,6 +29,14 @@ Este repositorio contiene solamente el stack inicial del MVP. El usuario todaví
 - Documentación en español; identificadores de código en inglés.
 - No agregar infraestructura, librerías ni capas que el requerimiento no necesite.
 
+## Contratos HTTP y Postman
+
+- Todo cambio en endpoints debe actualizar en el mismo cambio la colección `postman/FraudLens.postman_collection.json`.
+- Esto incluye crear o eliminar endpoints y modificar métodos, rutas, parámetros, headers, cuerpos de entrada, respuestas o códigos de estado.
+- Mantener los ejemplos y las verificaciones de Postman alineados con el contrato implementado. Si la colección todavía no existe, crearla al agregar o modificar un endpoint.
+- No incluir credenciales ni datos sensibles reales en la colección; usar variables para configurar el entorno.
+- Antes de dar por terminado el cambio o abrir un PR, verificar que la colección sea JSON válido y refleje los endpoints afectados.
+
 ## Secretos y efectos externos
 
 - Variables locales en `apps/web/.env.local`; documentar nombres en `.env.example`.

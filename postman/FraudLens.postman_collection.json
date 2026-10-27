@@ -1,0 +1,102 @@
+{
+  "info": {
+    "name": "FraudLens API",
+    "description": "Desarrollo local con MongoDB Compose. El POST crea datos persistentes. No contiene credenciales.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{base_url}}/api/health"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Status 200\", () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Create transaction evaluation",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{base_url}}/api/transaction-evaluations",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"transaction_id\": \"tx-{{$guid}}\",\n  \"user_id\": \"user-001\",\n  \"transaction_datetime\": \"2026-10-27T12:30:00-03:00\",\n  \"amount\": 25,\n  \"currency\": \"ARS\",\n  \"operation_type\": \"PURCHASE\",\n  \"merchant\": \"Example merchant\",\n  \"country\": \"AR\",\n  \"cardholder_present\": false,\n  \"card_present\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Status 201\", () => pm.response.to.have.status(201));",
+              "pm.test(\"Fixed evaluation\", () => { const data = pm.response.json(); pm.expect(data.risk_score).to.eql(0.6); pm.expect(data.decision).to.eql(\"BLOCK\"); pm.expect(data.rules_applied).to.eql([\"block_if_over_50\"]); pm.expect(data.transaction_evaluation_id).to.match(/^[a-f0-9]{24}$/); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reject invalid transaction",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{base_url}}/api/transaction-evaluations",
+        "body": {
+          "mode": "raw",
+          "raw": "{}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Status 400\", () => pm.response.to.have.status(400));"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
