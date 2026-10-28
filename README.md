@@ -22,7 +22,7 @@ Las versiones exactas resueltas quedan en `package-lock.json`. Usamos Node.js 24
 
 La aplicación se aloja en **Vercel** y usa **MongoDB Atlas** en producción. Para desarrollo usamos MongoDB local con Docker Compose. Administramos los servicios mediante los conectores de Vercel y MongoDB Atlas del asistente de IA; la aplicación se conecta directamente a MongoDB con Mongoose.
 
-Ver [arquitectura de FraudLens](docs/architecture.md) para los diagramas, entornos y el papel de cada conector.
+Ver el [mapa de arquitectura actual](docs/architecture.md) para distinguir lo implementado, simulado y desconectado, con diagramas de componentes, POST, GET y contratos de IA. El [diseño de integración de IA](docs/design/ai-integration.md) reúne las decisiones pendientes y el plan de la próxima capacidad; no describe funcionalidad ya implementada.
 
 ## Arranque local
 

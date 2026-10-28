@@ -2,6 +2,188 @@
 
 FraudLens usa **Vercel** para alojar la aplicación y **MongoDB Atlas** para persistir los datos de producción. Durante el desarrollo usamos MongoDB local con Docker Compose.
 
+## Cómo leer este mapa
+
+Esta página describe el **estado implementado**, tomando como referencia el commit `5c5253a` (adapter Groq sobre transacciones e historial). La documentación de infraestructura es la registrada por el proyecto; este mapa no demuestra que un despliegue o una cuenta externa estén saludables actualmente.
+
+- **Implementado:** código que participa del flujo indicado.
+- **Simulado:** código ejecutable que devuelve un resultado fijo, no una evaluación real.
+- **Preparado / desconectado:** componente existente sin consumidor en el flujo HTTP.
+- **Propuesto:** diseño pendiente, separado en [integración de IA](design/ai-integration.md).
+
+Los diagramas son Mermaid editable, renderizable desde la vista Markdown de GitHub o un visor compatible. El color es complementario: cada componente no operativo lleva su estado escrito.
+
+| Pieza | Estado y límite |
+| --- | --- |
+| App Next.js | Implementada: una app desplegable, con frontend y API. |
+| Pantalla inicial | Implementada: bienvenida estática; no permite crear o consultar evaluaciones. |
+| POST de evaluaciones | Implementado: valida y persiste. La decisión es **simulada**. |
+| Resultado del POST | Fijo: `risk_score: 0.6`, `decision: "BLOCK"`, `rules_applied: ["block_if_over_50"]`. El nombre de la regla no implica ejecución. |
+| GET del historial | Implementado: lectura paginada y ordenada de lo almacenado. |
+| MongoDB / Mongoose | Modelo y conexión reutilizable implementados; no se agrega un servicio backend separado. |
+| Groq | Preparado / desconectado: adapter con pruebas de HTTP simulado, sin inferencia real verificada. |
+| TypeSafe / Jev | Preparado / desconectado: helper anterior, no implementa el puerto nuevo. |
+| Health | Implementado: liveness de Next.js, no verifica DB ni IA. |
+
+## Vista 1 — Componentes actuales
+
+```mermaid
+flowchart LR
+    Client["Cliente HTTP / Postman"]
+    Browser["Navegador"]
+    subgraph Web["apps/web — una app Next.js"]
+        Page["Página inicial estática"]
+        Route["API transaction-evaluations — Node.js"]
+        Validation["Validación de entrada y paginación"]
+        Create["evaluateTransaction — decisión SIMULADA"]
+        List["listTransactionEvaluations"]
+        DB["connectDB + modelo Mongoose"]
+        Health["api/health — solo liveness"]
+        subgraph AI["IA PREPARADA / DESCONECTADA de HTTP"]
+            Composition["getAiModel"]
+            Adapter["Adapter Groq — implementa DecisionModel"]
+            Legacy["Helper TypeSafe — no implementa DecisionModel"]
+            Composition --> Adapter
+        end
+    end
+    Mongo[("MongoDB — Compose local o Atlas")]
+    Groq["API Groq — NO validada en vivo"]
+    Jev["API TypeSafe — NO validada en vivo"]
+    Browser --> Page
+    Client --> Route
+    Client --> Health
+    Route --> Validation
+    Route --> Create
+    Route --> List
+    Create --> DB
+    List --> DB
+    DB --> Mongo
+    Adapter -. "Solo si un consumidor invoca decide" .-> Groq
+    Legacy -. "Modelo preparado; sin inferencia implementada" .-> Jev
+```
+
+Las flechas discontinuas indican una capacidad preparada, no llamadas del endpoint actual. La página inicial no consume la API de evaluaciones. No se representan dashboards, autenticación propia ni motores de reglas porque no están implementados.
+
+**Evidencia:** [rutas](../apps/web/src/app/api/transaction-evaluations/route.ts), [pantalla](../apps/web/src/app/page.tsx), [health](../apps/web/src/app/api/health/route.ts), [servicio de creación](../apps/web/src/server/services/evaluate-transaction.ts), [servicio de consulta](../apps/web/src/server/services/list-transaction-evaluations.ts), [conexión](../apps/web/src/lib/db/mongoose.ts) y [composición de IA](../apps/web/src/lib/ai/index.ts).
+
+## Vista 2 — Crear una evaluación hoy
+
+```mermaid
+sequenceDiagram
+    actor Client as Cliente HTTP
+    participant Route as POST /api/transaction-evaluations
+    participant Service as evaluateTransaction
+    participant Mongo as MongoDB mediante Mongoose
+    Client->>Route: POST con JSON de transacción
+    Note over Route: Verifica Content-Type, parsea JSON y valida campos
+    alt Content-Type distinto de application/json
+        Route-->>Client: 415
+    else JSON inválido
+        Route-->>Client: 400 — Invalid JSON body
+    else Campos inválidos
+        Route-->>Client: 400 — Invalid transaction
+    else Entrada válida
+        Route->>Service: evaluateTransaction(input validado)
+        Note over Service,Mongo: connectDB reutiliza la conexión y el modelo inserta un documento nuevo
+        Service->>Mongo: Guardar entrada + resultado SIMULADO + timestamps
+        alt Conexión y escritura exitosas
+            Mongo-->>Service: Documento con ID
+            Service-->>Route: ID y resultado fijo
+            Route-->>Client: 201 + Cache-Control no-store
+        else Error de conexión o escritura
+            Service--xRoute: Error del servicio
+            Route-->>Client: 503 — Unable to persist transaction evaluation
+        end
+    end
+    Note over Service: No llama a Groq ni ejecuta reglas
+```
+
+Los rechazos de contenido o campos ocurren antes de invocar el servicio y no insertan evaluaciones. Cada POST válido que se persiste crea un documento nuevo; no hay deduplicación por `transaction_id`. El campo `decision` del esquema solo admite `BLOCK` actualmente: incorporar otros resultados necesitaría un cambio explícito, no solo conectar un modelo.
+
+**Evidencia:** [ruta POST](../apps/web/src/app/api/transaction-evaluations/route.ts), [validación](../apps/web/src/server/services/transaction-evaluation-input.ts), [servicio](../apps/web/src/server/services/evaluate-transaction.ts) y [esquema persistido](../apps/web/src/server/models/transaction-evaluation.ts).
+
+## Vista 3 — Consultar el historial hoy
+
+```mermaid
+sequenceDiagram
+    actor Client as Cliente HTTP
+    participant Route as GET /api/transaction-evaluations
+    participant Pagination as parseEvaluationPagination
+    participant Service as listTransactionEvaluations
+    participant Mongo as MongoDB mediante Mongoose
+    Client->>Route: GET con limit y offset opcionales
+    Route->>Pagination: Validar parámetros
+    alt Paginación inválida
+        Pagination-->>Route: success false
+        Route-->>Client: 400 — parámetros inválidos
+    else Paginación válida
+        Pagination-->>Route: limit y offset (default 20 y 0)
+        Route->>Service: listTransactionEvaluations(limit, offset)
+        Note over Service,Mongo: connectDB reutiliza la conexión y no se recalcula ninguna evaluación
+        Service->>Mongo: find, sort created_at e _id DESC, skip offset, limit + 1
+        alt Consulta exitosa
+            Mongo-->>Service: Documentos
+            Service-->>Route: items, limit, offset, has_more
+            Route-->>Client: 200 + Cache-Control no-store
+        else Error de conexión o consulta
+            Service--xRoute: Error del servicio
+            Route-->>Client: 503 — Unable to retrieve transaction evaluations
+        end
+    end
+```
+
+`limit` admite enteros entre 1 y 100; `offset`, enteros seguros no negativos. El documento adicional determina `has_more`; no se devuelve como un item extra. Una consulta sin documentos responde `200` con `items: []`. La respuesta transforma `_id` en `transaction_evaluation_id` y excluye `__v`.
+
+**Evidencia:** [ruta GET](../apps/web/src/app/api/transaction-evaluations/route.ts), [paginación](../apps/web/src/server/services/evaluation-pagination.ts) y [consulta](../apps/web/src/server/services/list-transaction-evaluations.ts).
+
+## Vista 4 — Contratos y dependencias de IA
+
+Este UML representa interfaces y módulos, **no clases de negocio nuevas**. El adapter y la composición son funciones que devuelven una implementación del puerto.
+
+```mermaid
+classDiagram
+    class DecisionModel {
+        <<interface>>
+        +decide(request) Promise
+    }
+    class DecisionRequest {
+        <<interface>>
+        +input string
+        +instructions string
+        +outputSchema DecisionOutputSchema
+    }
+    class DecisionOutputSchema {
+        <<interface>>
+        +jsonSchema Record
+        +parse(value) T
+    }
+    class Composition {
+        <<module>>
+        +getAiModel() DecisionModel
+    }
+    class GroqAdapter {
+        <<module>>
+        +createGroqDecisionModel(options) DecisionModel
+    }
+    Composition ..> GroqAdapter : construye
+    Composition ..> DecisionModel : devuelve
+    GroqAdapter ..> DecisionModel : devuelve implementación
+    DecisionModel ..> DecisionRequest : recibe
+    DecisionRequest --> DecisionOutputSchema : contiene
+```
+
+El consumidor aporta `input`, `instructions` y `outputSchema`. `decide<T>()` devuelve `Promise<T>` tras validar la respuesta; el esquema contiene JSON Schema y `parse(unknown): T`. El parámetro genérico se resume en el dibujo para mantenerlo legible. No existe todavía un consumidor de negocio conectado a este puerto. El helper TypeSafe queda fuera del UML porque no lo implementa.
+
+**Evidencia:** [contratos](../apps/web/src/lib/ai/decision-model.ts), [composición](../apps/web/src/lib/ai/index.ts), [adapter](../apps/web/src/lib/ai/groq.ts) y [helper TypeSafe](../apps/web/src/lib/ai/typesafe.ts).
+
+## Evidencia y límites de verificación
+
+En la preparación del adapter pasó `npm run check`: lint, 14 tests aprobados, un test HTTP omitido por no configurar `TEST_BASE_URL`, tipos y build. Los tests del adapter usan el SDK con HTTP simulado; no demuestran credenciales, cuota, disponibilidad o calidad predictiva. Este mapa no vuelve a probar Atlas, Vercel ni Groq. Los diagramas describen código, no una prueba en vivo del sistema desplegado.
+
+Se verificó el render de los siete bloques Mermaid de esta página y del diseño de integración con Mermaid `11.12.0` en navegador: siete SVG generados y captura completa inspeccionada. Se corrigieron dos notas de secuencia cuyo punto y coma rompía el parser. Esta comprobación visual no sustituye las pruebas funcionales ni valida servicios externos. No se generó una exportación HTML de Archify.
+
+Ver los [tests del adapter](../apps/web/tests/groq.test.mjs), [tests de validación](../apps/web/tests/transaction-evaluation-input.test.mjs), [tests de paginación](../apps/web/tests/evaluation-pagination.test.mjs) y [test HTTP opcional](../apps/web/tests/transaction-evaluations.integration.test.mjs).
+
 ## Aplicación y entornos
 
 ```mermaid
