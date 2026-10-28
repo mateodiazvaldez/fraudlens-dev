@@ -28,6 +28,8 @@ const transactionEvaluationSchema = new Schema<TransactionEvaluationDocument>({
   rules_applied: { type: [String], required: true },
 }, { collection: "transaction_evaluations", timestamps: { createdAt: "created_at", updatedAt: "updated_at" } });
 
-export const TransactionEvaluation =
+transactionEvaluationSchema.index({ created_at: -1, _id: -1 });
+
+export const TransactionEvaluation: Model<TransactionEvaluationDocument> =
   (mongoose.models.TransactionEvaluation as Model<TransactionEvaluationDocument> | undefined) ??
-  mongoose.model("TransactionEvaluation", transactionEvaluationSchema);
+  mongoose.model<TransactionEvaluationDocument>("TransactionEvaluation", transactionEvaluationSchema);

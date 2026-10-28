@@ -1,3 +1,5 @@
+import { parseEvaluationPagination } from "@/server/services/evaluation-pagination";
+import { listTransactionEvaluations } from "@/server/services/list-transaction-evaluations";
 import { evaluateTransaction } from "@/server/services/evaluate-transaction";
 import { validateTransactionInput } from "@/server/services/transaction-evaluation-input";
 
@@ -24,5 +26,18 @@ export async function POST(request: Request) {
   } catch {
     // Do not expose database errors or transaction data.
     return Response.json({ error: "Unable to persist transaction evaluation" }, { status: 503 });
+  }
+}
+
+export async function GET(request: Request) {
+  const pagination = parseEvaluationPagination(new URL(request.url).searchParams);
+  if (!pagination.success) {
+    return Response.json({ error: "limit must be an integer from 1 to 100; offset must be a non-negative safe integer" }, { status: 400 });
+  }
+  try {
+    const page = await listTransactionEvaluations(pagination.limit, pagination.offset);
+    return Response.json(page, { headers: { "Cache-Control": "no-store" } });
+  } catch {
+    return Response.json({ error: "Unable to retrieve transaction evaluations" }, { status: 503 });
   }
 }

@@ -171,3 +171,13 @@ La auditoría de producción (`npm audit --omit=dev`) no reportó vulnerabilidad
 Importar [la colección de Postman](postman/FraudLens.postman_collection.json). Incluye health, creación de evaluaciones y un ejemplo de validación fallida, con verificaciones de respuesta. La variable `base_url` apunta por defecto a `http://localhost:3000`. El POST crea documentos persistentes en la base configurada.
 
 Todo cambio de endpoints debe mantener esta colección actualizada en el mismo PR, según `AGENTS.md`.
+
+## Consultar evaluaciones pasadas
+
+`GET /api/transaction-evaluations?limit=20&offset=0` devuelve `200` con `{ "items": [], "limit": 20, "offset": 0, "has_more": false }`.
+
+Cada item contiene `transaction_evaluation_id`, los campos de entrada, `risk_score`, `decision`, `rules_applied`, `created_at` y `updated_at`. Las fechas se devuelven en ISO 8601 UTC. Se ordena por creación descendente, con ID descendente como desempate. `limit` es un entero entre 1 y 100 (default 20); `offset` es un entero no negativo (default 0). Una lista vacía devuelve `200`; parámetros inválidos `400`; errores de persistencia `503`. La paginación por offset puede desplazarse con inserciones concurrentes.
+
+La colección Postman incluye este GET. Para probar el flujo POST → MongoDB → GET, iniciar MongoDB y la app, y ejecutar `TEST_BASE_URL=http://localhost:3000 npm test`. El test crea una evaluación persistente y no elimina datos. Requiere una instancia local sin solicitudes concurrentes. Sin esa variable, se omite el test HTTP y se ejecutan los tests unitarios.
+
+Para el MVP se autorizó consultar el historial sin autenticación propia de la app, manteniendo la protección existente de Vercel. No deshabilitar esa protección al desplegar.

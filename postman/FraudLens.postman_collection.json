@@ -97,6 +97,26 @@
           }
         }
       ]
+    },
+    {
+      "name": "List transaction evaluations",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{base_url}}/api/transaction-evaluations?limit=20&offset=0"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Status 200\", () => pm.response.to.have.status(200));",
+              "pm.test(\"Paginated evaluations\", () => { const data = pm.response.json(); pm.expect(data.items).to.be.an(\"array\"); pm.expect(data.limit).to.eql(20); pm.expect(data.offset).to.eql(0); pm.expect(data.has_more).to.be.a(\"boolean\"); });"
+            ]
+          }
+        }
+      ]
     }
   ]
 }

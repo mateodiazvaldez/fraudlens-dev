@@ -62,3 +62,9 @@ Compose usa un volumen persistente y solo expone MongoDB en loopback. No configu
 ## CU-01
 
 El contrato y su validación están en `src/server/services/transaction-evaluation-input.ts`; la ruta gestiona HTTP y el servicio coordina la persistencia. El modelo está en `src/server/models/transaction-evaluation.ts`, colección `transaction_evaluations`. Se almacena la entrada completa junto con risk_score, decision, rules_applied y timestamps. Cada solicitud crea una evaluación independiente; no hay deduplicación, autenticación ni motor de reglas en esta etapa.
+
+## Consulta del historial
+
+`GET /api/transaction-evaluations` usa `listTransactionEvaluations()` y la conexión compartida. Un índice compuesto por `created_at` e `_id` descendentes soporta el orden de los resultados. Se pagina con limit (máximo 100) y offset, consultando un documento adicional para calcular `has_more`. La respuesta usa `transaction_evaluation_id`, omite `_id` y `__v`, y lleva `Cache-Control: no-store`.
+
+El usuario autorizó este GET para quienes tengan acceso a la app del MVP, manteniendo la protección existente de Vercel. No se agrega autenticación propia en esta etapa ni se modifica la configuración de protección del despliegue.
