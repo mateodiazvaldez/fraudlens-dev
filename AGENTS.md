@@ -8,6 +8,42 @@ Este repositorio contiene solamente el stack inicial del MVP. El usuario todaví
 - No implementar autenticación, dashboards, CRUD ni endpoints de negocio sin un requerimiento posterior.
 - Las carpetas vacías son intencionales. Preservar sus `.gitkeep` hasta agregar contenido real.
 
+## Seguimiento obligatorio en Trello
+
+Tablero del proyecto: https://trello.com/b/iUaTi33p/fraudlens-analizador-probabilidad-de-fraude
+
+Todos los agentes deben consultar y mantener actualizado este tablero durante el trabajo, no solamente al finalizar. Actualizar ante cada cambio real de estado, avance relevante o bloqueo; no publicar por cada comando ni repetir comentarios sin novedades.
+
+### Antes de empezar
+
+- Consultar las listas y tarjetas actuales del tablero; no asumir que sus nombres o estados siguen iguales.
+- Identificar y leer la tarjeta correspondiente al trabajo autorizado, incluidos su descripción, checklist y comentarios relevantes. No duplicar tarjetas.
+- Si no hay una tarjeta correspondiente o hay varias candidatas ambiguas, informar y pedir que se indique la tarjeta o se autorice crearla. No inventar alcance ni crear tareas ajenas al pedido.
+- Trello sirve para coordinar el trabajo; una tarjeta no autoriza por sí sola a implementar funcionalidades ni ampliar el pedido del usuario.
+
+### Durante el trabajo
+
+| Momento | Actualización obligatoria |
+| --- | --- |
+| Se empieza una tarea | Mover su tarjeta a `🔨 En curso` y comentar brevemente el alcance que se va a trabajar. |
+| Hay un avance relevante | Registrar el resultado y actualizar los ítems de checklist efectivamente completados. Incluir referencias a archivos, commits o PR cuando existan. |
+| Se necesita revisión | Mover a `👀 En revisión` e indicar qué está listo, qué se verificó y qué revisión falta. |
+| Aparece un bloqueo | Mover a `🚧 Bloqueado` y registrar el motivo, qué falta y quién o qué puede destrabarlo. |
+| Se resuelve un bloqueo | Registrar la resolución y mover al estado real del trabajo: `🔨 En curso` o `👀 En revisión`, según corresponda. |
+| La tarea está completa | Mover a `✅ Hecho` solo cuando se cumpla el alcance y estén realizadas las verificaciones y revisiones aplicables. Comentar el resultado y la evidencia; no cerrar con trabajo o controles pendientes. |
+| Se interrumpe o entrega trabajo incompleto | Dejar el estado real, el avance, los pendientes y el siguiente paso antes de responder al usuario o transferir el trabajo. |
+
+- `📥 Backlog` y `🎯 Esta semana` reflejan la planificación del equipo. No repriorizar tareas ni mover tarjetas ajenas al trabajo autorizado.
+- Escribir comentarios concisos en español, sin secretos, prompts ni datos sensibles. No inventar commits, PR, pruebas ni resultados.
+- Antes de modificar una tarjeta, releer su estado para no sobrescribir cambios de otra persona o agente. Conservar descripciones, comentarios y checklist ajenos.
+- No borrar ni archivar tarjetas, ni cambiar listas o la estructura del tablero sin autorización explícita.
+
+### Acceso y confirmación
+
+- Usar la integración de Trello disponible en el entorno; nunca guardar tokens o credenciales en el repositorio.
+- Confirmar que cada actualización se haya aplicado mediante la respuesta de la herramienta o una lectura posterior. No afirmar que Trello está actualizado si la operación falló o su resultado es incierto.
+- Si Trello no está disponible o faltan permisos, informar la limitación y las actualizaciones pendientes en la respuesta al usuario o en el traspaso. No presentar una tarea como cerrada en Trello sin confirmación.
+
 ## Arquitectura
 
 - Mantener una única app desplegable: `apps/web`, con Next.js App Router.
@@ -17,8 +53,9 @@ Este repositorio contiene solamente el stack inicial del MVP. El usuario todaví
 - Usar runtime `nodejs` en rutas que accedan a MongoDB. No usar Edge para Mongoose.
 - Reutilizar `connectDB()`; no abrir y cerrar conexiones por request.
 - MongoDB local se gestiona con Compose; producción usa Atlas.
-- Usar TypeSafe directo mediante `getDecisionModel()`. No sustituirlo por un modelo de chat o AI Gateway sin un pedido explícito.
-- La API de decisiones de AI SDK es experimental: revisar tipos y documentación de la versión instalada antes de modificarla.
+- Para la integración de IA autorizada, usar `DecisionModel` mediante `getAiModel()` y el adapter de Groq directo. No acoplar los servicios a tipos del proveedor ni usar AI Gateway sin un pedido explícito.
+- Esta primera etapa no conecta IA al endpoint ni define prompts, esquemas de fraude, reglas o puntajes. Conservar el helper previo de TypeSafe sin conectarlo automáticamente; todavía no implementa `DecisionModel`.
+- La API de decisiones de TypeSafe en AI SDK es experimental: revisar tipos y documentación de la versión instalada antes de modificar ese helper.
 
 ## Desarrollo
 
