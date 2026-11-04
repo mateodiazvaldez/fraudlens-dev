@@ -37,7 +37,7 @@ flowchart LR
 
 Los conectores actúan con los permisos de las cuentas conectadas y las autorizaciones del usuario. Son herramientas del asistente para administrar infraestructura; las solicitudes de la aplicación acceden directamente a MongoDB mediante Mongoose. No es necesario que el asistente esté conectado para que FraudLens funcione.
 
-Estos conectores son independientes de **Vercel AI SDK / TypeSafe**, que están preparados en el código para futuras evaluaciones de IA. El endpoint actual devuelve un resultado fijo y no hace inferencia.
+Estos conectores son independientes de **Vercel AI SDK / Groq**, preparados para futuras evaluaciones de IA detrás de un contrato propio. Se conserva también el helper previo de TypeSafe. El endpoint actual devuelve un resultado fijo y no hace inferencia.
 
 ## Límites actuales
 
@@ -51,12 +51,22 @@ Compose usa un volumen persistente y solo expone MongoDB en loopback. No configu
 
 ## IA
 
-`getDecisionModel()` crea una instancia del proveedor oficial TypeSafe con la key del servidor y el identificador de Jev. No realiza inferencia. Las futuras llamadas usarán la API experimental de decisiones del AI SDK; las preguntas y los criterios dependen del dominio aún pendiente.
+La primera etapa usa un puerto propio `DecisionModel`, definido en `src/lib/ai/decision-model.ts`, y un adapter de Groq directo en `src/lib/ai/groq.ts`. `getAiModel()` en `src/lib/ai/index.ts` compone la implementación: solo ahí se elige el proveedor. Los consumidores no importan tipos de Groq ni del AI SDK.
+
+El contrato recibe entrada textual, instrucciones y un esquema de salida aportados por el consumidor. El esquema contiene JSON Schema y una función `parse(unknown)` que valida y devuelve la salida tipada o lanza un error; deben mantenerse coherentes. El adapter usa salida estructurada del AI SDK y rechaza respuestas inválidas. Este puerto no es todavía un servicio de evaluación de fraude: no hay un contrato de decisión de negocio, prompts, reglas ni umbrales nuevos.
+
+`GROQ_API_KEY` se valida solo al pedir la instancia; `GROQ_MODEL` permite elegir otro modelo compatible y usa `openai/gpt-oss-20b` por defecto. Importar, construir o compilar no hace inferencia. Únicamente `decide()` envía una solicitud; tiene timeout de 30 segundos, sin reintentos automáticos ni fallback a resultados inventados. Los errores públicos no exponen mensajes ni cuerpos del proveedor. La configuración está documentada en README, no en `.env.example`, por decisión del usuario.
+
+La inferencia sigue **desconectada de HTTP y MongoDB**. Los tests usan el SDK con transporte HTTP simulado, sin credenciales reales ni consumo de cuota. Una salida válida no prueba calidad predictiva ni calibración. La disponibilidad y cuota gratuita deben confirmarse en la cuenta de Groq; no se hicieron solicitudes reales ni se validó un modelo para fraude.
+
+Se conserva `getDecisionModel()` en `src/lib/ai/typesafe.ts` sin cambios: crea el modelo de decisiones Jev con configuración diferida, pero no implementa el nuevo puerto. Un futuro adapter de TypeSafe deberá traducir ese contrato sin exponer la API experimental al consumidor. No hay selección automática entre proveedores.
 
 ## Referencias
 
 - [Next.js App Router](https://nextjs.org/docs/app/getting-started/installation)
 - [Mongoose con Next.js](https://mongoosejs.com/docs/nextjs.html)
+- [Groq en AI SDK](https://ai-sdk.dev/providers/ai-sdk-providers/groq)
+- [Modelos y disponibilidad de Groq](https://console.groq.com/docs/models)
 - [TypeSafe en AI SDK](https://ai-sdk.dev/providers/ai-sdk-providers/typesafe-ai)
 
 ## CU-01
