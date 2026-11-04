@@ -6,7 +6,7 @@ const valid = {
   transaction_id: "tx-001", user_id: "user-001",
   transaction_datetime: "2026-10-27T12:30:00-03:00",
   amount: 25, currency: "ARS", operation_type: "PURCHASE",
-  merchant: "Example merchant", country: "AR",
+  merchant: "Example merchant", country: "AR", card_country: "AR",
   cardholder_present: false, card_present: false,
 };
 
@@ -25,6 +25,7 @@ test("rejects invalid values without coercing strings or numbers", () => {
   for (const [field, values] of Object.entries({
     amount: [0, -1, "25", NaN, Infinity],
     currency: ["ars", "AR", null], country: ["arg", "ARG", "ar"],
+    card_country: ["arg", "ARG", "ar", null, 12],
     operation_type: ["TRANSFER", "purchase"],
     card_present: ["false", 0, null], cardholder_present: ["true", 1],
     transaction_id: ["", "  ", 1], user_id: ["", null], merchant: ["  ", {}],

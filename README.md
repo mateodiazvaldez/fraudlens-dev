@@ -2,7 +2,7 @@
 
 **El punto de partida del MVP. Un repositorio, una app, un deploy.**
 
-Implementa CU-01: recibe una transacción, persiste su evaluación en MongoDB y devuelve un resultado fijo. No ejecuta reglas ni inferencia de IA.
+Implementa CU-01: recibe una transacción, consulta el historial aprobado del usuario, obtiene una decisión estructurada de Groq y persiste el resultado en MongoDB. Los estados son `APPROVED` y `REJECTED`.
 
 ## Stack
 
@@ -60,7 +60,7 @@ fraudlens/
 │   │   │   └── ai/               # Contrato, composición y adapter Groq; helper previo de Jev
 │   │   └── server/
 │   │       ├── models/           # Modelo TransactionEvaluation
-│   │       ├── repositories/     # Reservado
+│   │       ├── repositories/     # Historial aprobado del usuario
 │   │       └── services/         # Validación y evaluación de transacciones
 │   └── .env.example
 ├── docs/architecture.md
@@ -87,7 +87,7 @@ Next.js lee las variables locales desde **`apps/web/.env.local`**, no desde la r
 
 No commitear credenciales ni agregarles el prefijo `NEXT_PUBLIC_`. Los módulos de DB e IA tienen `server-only`. La validación de secretos es diferida, por lo que el build no requiere acceso a servicios externos.
 
-### Groq: primera etapa de integración
+### Groq: evaluación de transacciones
 
 El proveedor inicial es **Groq directo**, sin AI Gateway. Creá una API key en [Groq Console](https://console.groq.com/keys) y configurá localmente estas variables en `apps/web/.env.local` (o en el entorno del servidor):
 
@@ -106,7 +106,7 @@ Groq ofrece una modalidad gratuita con cuotas y disponibilidad por cuenta/modelo
 - Para cambiar de modelo dentro de Groq, ajustar `GROQ_MODEL` y comprobar que soporte el esquema solicitado. Para cambiar de proveedor, implementar `DecisionModel` y cambiar la composición en `getAiModel()`; no agregar condicionales de proveedor a los servicios de negocio.
 - Cada inferencia tiene un timeout de 30 segundos y no hace reintentos automáticos. Una respuesta inválida o un error del proveedor se rechaza con un mensaje genérico, sin fabricar decisiones ni propagar contenido sensible.
 
-**Todavía no se conecta a CU-01 ni a ningún endpoint.** No hay un esquema de fraude, prompts de negocio, reglas, umbrales ni puntajes nuevos. Una salida estructurada válida no demuestra que la evaluación sea correcta ni que una confianza sea una probabilidad calibrada.
+CU-01 consume `getAiModel().decide()` mediante `assessTransactionRisk()`. El modelo considera monto inusual, comercio inusual y país de la transacción distinto de `card_country` (país de emisión de la tarjeta). Decide también sin historial. No se implementan umbrales de puntaje ni reglas de rechazo automático. `risk_score` conserva el contrato previo, pero ahora es una estimación del modelo, no una probabilidad calibrada. Una salida estructurada válida no demuestra calidad predictiva.
 
 Se fija `@ai-sdk/groq@4.0.67`, compatible con el `ai@7.0.148` instalado. No actualizar el proveedor por separado sin verificar compatibilidad de tipos.
 
@@ -118,7 +118,7 @@ Referencias: [proveedor Groq en AI SDK](https://ai-sdk.dev/providers/ai-sdk-prov
 
 Se conserva sin cambios el helper anterior; todavía no implementa el nuevo contrato `DecisionModel`. El proveedor oficial `@ai-sdk/typesafe-ai` se configura en `src/lib/ai/typesafe.ts`. `getDecisionModel()` devuelve un modelo de decisiones listo para usar con el AI SDK. Crear esta instancia no ejecuta solicitudes.
 
-La integración utiliza la API experimental de decisiones de AI SDK (`experimental_decide`), no una API de chat. Todavía no se definen preguntas, prompts, criterios, umbrales ni endpoints de IA. La API key es de TypeSafe; no hace falta una key de AI Gateway para esta conexión directa. El alias `jev-latest` puede cambiar; se puede fijar una versión mediante la variable de entorno.
+La integración utiliza la API experimental de decisiones de AI SDK (`experimental_decide`), no una API de chat. Ese helper no participa de la evaluación de transacciones. La API key de ese helper es de TypeSafe; no hace falta una key de AI Gateway para esta conexión directa. El alias `jev-latest` puede cambiar; se puede fijar una versión mediante la variable de entorno.
 
 Referencia: [TypeSafe en AI SDK](https://ai-sdk.dev/providers/ai-sdk-providers/typesafe-ai).
 
@@ -131,7 +131,7 @@ Referencia: [TypeSafe en AI SDK](https://ai-sdk.dev/providers/ai-sdk-providers/t
 | `npm run start` | Servir el build de producción |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | Generar tipos de rutas y verificar TypeScript |
-| `npm run check` | Lint + tipos + build |
+| `npm run check` | Lint + tests + tipos + build |
 | `npm run db:up` | Iniciar MongoDB y esperar a que esté saludable |
 | `npm run db:down` | Detener MongoDB, conservando datos |
 | `npm run db:logs` | Ver logs de MongoDB |
@@ -141,7 +141,7 @@ Referencia: [TypeSafe en AI SDK](https://ai-sdk.dev/providers/ai-sdk-providers/t
 1. Importar el repositorio y seleccionar **Next.js**.
 2. Elegir **Root Directory: `apps/web`** y habilitar acceso a archivos fuera de ese directorio si Vercel lo solicita para resolver el workspace y el lockfile raíz.
 3. Usar Node.js **24.x**, build `npm run build` y directorio de salida automático. Para instalación explícita: `cd ../.. && npm ci`.
-4. Configurar `MONGODB_URI` con el URI de Atlas que incluya la base `fraudlens`. Las credenciales de IA no son necesarias para el flujo HTTP actual: `GROQ_API_KEY` será necesaria al consumir `getAiModel()` y `GROQ_MODEL` es opcional. TypeSafe conserva sus variables independientes si se usa su helper anterior.
+4. Configurar `MONGODB_URI` con el URI de Atlas que incluya la base `fraudlens`. `GROQ_API_KEY` es obligatoria para evaluar transacciones; `GROQ_MODEL` es opcional. Home, health y GET no requieren la key. TypeSafe conserva sus variables independientes si se usa su helper anterior.
 5. Crear en Atlas un usuario de aplicación con acceso a la base y configurar la conectividad de red para el entorno de despliegue.
 6. Desplegar y comprobar `/` y `/api/health`.
 
@@ -163,12 +163,13 @@ curl -i http://localhost:3000/api/transaction-evaluations \
     "operation_type": "PURCHASE",
     "merchant": "Example merchant",
     "country": "AR",
+    "card_country": "AR",
     "cardholder_present": false,
     "card_present": false
   }'
 ```
 
-Los diez campos son obligatorios. Los identificadores y merchant son strings no vacíos; amount es un número positivo; currency usa tres letras mayúsculas y country dos. transaction_datetime debe ser ISO 8601 con zona horaria. Solo se admite PURCHASE; los flags deben ser booleanos. Los campos adicionales se ignoran.
+Los once campos son obligatorios. Los identificadores y merchant son strings no vacíos; amount es un número positivo; currency usa tres letras mayúsculas; country y card_country usan dos. card_country indica el país de emisión de la tarjeta, no la residencia del usuario. transaction_datetime debe ser ISO 8601 con zona horaria. Solo se admite PURCHASE; los flags deben ser booleanos. Los campos adicionales se ignoran.
 
 Devuelve `201 Created` después de guardar en `transaction_evaluations`:
 
@@ -176,15 +177,30 @@ Devuelve `201 Created` después de guardar en `transaction_evaluations`:
 {
   "transaction_evaluation_id": "<MongoDB ObjectId autogenerado>",
   "transaction_id": "tx-001",
-  "risk_score": 0.6,
-  "decision": "BLOCK",
-  "rules_applied": ["block_if_over_50"]
+  "risk_score": 0.1,
+  "decision": "APPROVED",
+  "reasons": ["Monto y comercio consistentes con el historial disponible."],
+  "signals": [],
+  "rules_applied": [],
+  "model_id": "openai/gpt-oss-20b",
+  "assessment_version": "transaction-risk-v1",
+  "history_count": 3
 }
 ```
 
-El documento conserva todos los campos de entrada, la fecha como Date, el resultado y created_at/updated_at. El resultado es fijo incluso para montos inferiores a 50: el nombre de la regla es parte del stub y no implica ejecución. Cada POST crea una evaluación nueva, incluso con el mismo transaction_id; todavía no hay idempotencia ni autenticación.
+La respuesta anterior es ilustrativa: la decisión, el puntaje y los motivos dependen de la inferencia. El documento conserva los campos de entrada, la fecha como Date, el resultado y created_at/updated_at.
 
-Errores: `400` para JSON o campos inválidos, `415` para otro Content-Type y `503` si no se puede persistir. Los errores no incluyen datos de la transacción ni detalles internos de MongoDB.
+El contexto incluye hasta las 50 transacciones `APPROVED` más recientes del mismo `user_id`, con fecha de transacción anterior a la actual y distinto `transaction_id`. Los rechazos y los documentos históricos `BLOCK` del mock quedan excluidos; no se reescriben ni se reinterpretan. Se comparan montos solo en la misma moneda, sin conversión. El contexto enviado a Groq omite identificadores y campos ajenos al análisis.
+
+`signals` admite `UNUSUAL_AMOUNT`, `UNUSUAL_MERCHANT`, `COUNTRY_MISMATCH` e `INSUFFICIENT_HISTORY`. Sin historial se decide igualmente y se informa la limitación. Se valida que la señal de diferencia de país coincida con la entrada. `rules_applied` es `[]`, porque no hay reglas de negocio ejecutadas. Se guarda el modelo configurado, la versión del prompt/esquema y la cantidad de antecedentes utilizados. Esto permite identificar la configuración, pero no garantiza reproducción exacta de la inferencia.
+
+Cada POST crea una evaluación nueva, incluso con el mismo transaction_id; todavía no hay idempotencia ni autenticación. Los datos de card_country provienen de la request; el backend no los verifica contra un emisor.
+
+Errores: `400` para JSON o campos inválidos, `415` para otro Content-Type y `503` si falla la lectura del historial, la configuración/inferencia, la validación de la respuesta o la persistencia. En esos casos no se fabrica una decisión ni se guarda una evaluación exitosa. El POST devuelve el mensaje genérico `Unable to evaluate transaction`, sin datos de la transacción ni detalles internos de DB o Groq.
+
+Los errores se registran en el servidor como JSON con `event`, `stage`, `code` y timestamp. Las etapas distinguen configuración, conexión a DB, lectura de antecedentes, inferencia y persistencia; el GET registra sus fallos de consulta. En errores de Groq se conserva el status HTTP y, cuando corresponde, un código de proveedor de una lista permitida. No se registran mensajes originales, stack, causas, datos de transacciones, prompts, claves ni cuerpos de respuesta. Las respuestas HTTP mantienen sus mensajes genéricos.
+
+Para inspeccionar el cuerpo de las respuestas de Groq durante desarrollo, activar `AI_DEBUG_RESPONSES=true` en `apps/web/.env.local`. Solo funciona con `NODE_ENV=development`: registra `ai_provider_response`, status y cuerpo (máximo 8000 caracteres, con claves y campos de credenciales ocultos), tanto para respuestas exitosas como para errores HTTP o JSON inválido. El cuerpo puede incluir contenido generado o datos que el proveedor haya devuelto; no registra headers ni la request. Se desactiva con `AI_DEBUG_RESPONSES=false` y está deshabilitado en producción incluso si la variable queda activada.
 
 `npm test` ejecuta la validación del contrato; `npm run check` también la incluye. Para desarrollo usar `npm run db:up` y el URI local de `.env.example`; producción sigue usando Atlas.
 
@@ -207,8 +223,28 @@ Todo cambio de endpoints debe mantener esta colección actualizada en el mismo P
 
 `GET /api/transaction-evaluations?limit=20&offset=0` devuelve `200` con `{ "items": [], "limit": 20, "offset": 0, "has_more": false }`.
 
-Cada item contiene `transaction_evaluation_id`, los campos de entrada, `risk_score`, `decision`, `rules_applied`, `created_at` y `updated_at`. Las fechas se devuelven en ISO 8601 UTC. Se ordena por creación descendente, con ID descendente como desempate. `limit` es un entero entre 1 y 100 (default 20); `offset` es un entero no negativo (default 0). Una lista vacía devuelve `200`; parámetros inválidos `400`; errores de persistencia `503`. La paginación por offset puede desplazarse con inserciones concurrentes.
+Cada item nuevo contiene `transaction_evaluation_id`, los campos de entrada (incluido `card_country`), `risk_score`, `decision`, `reasons`, `signals`, `rules_applied`, `model_id`, `assessment_version`, `history_count`, `created_at` y `updated_at`. Los documentos previos se devuelven con sus campos originales: pueden conservar `BLOCK` y carecer de los campos nuevos. Las fechas se devuelven en ISO 8601 UTC. Se ordena por creación descendente, con ID descendente como desempate. `limit` es un entero entre 1 y 100 (default 20); `offset` es un entero no negativo (default 0). Una lista vacía devuelve `200`; parámetros inválidos `400`; errores de persistencia `503`. La paginación por offset puede desplazarse con inserciones concurrentes.
 
-La colección Postman incluye este GET. Para probar el flujo POST → MongoDB → GET, iniciar MongoDB y la app, y ejecutar `TEST_BASE_URL=http://localhost:3000 npm test`. El test crea una evaluación persistente y no elimina datos. Requiere una instancia local sin solicitudes concurrentes. Sin esa variable, se omite el test HTTP y se ejecutan los tests unitarios.
+La colección Postman incluye este GET. Para probar el flujo POST → MongoDB → GET, iniciar MongoDB y la app, y ejecutar `TEST_BASE_URL=http://localhost:3000 TEST_AI_EVALUATIONS=1 npm test`. Este opt-in ejecuta una inferencia en el servidor configurado y puede consumir cuota. El test crea una evaluación persistente y no elimina datos. Requiere una instancia local sin solicitudes concurrentes. Sin ambas variables se omite el test HTTP. Los tests unitarios y del adapter usan respuestas simuladas y no consumen cuota.
 
 Para el MVP se autorizó consultar el historial sin autenticación propia de la app, manteniendo la protección existente de Vercel. No deshabilitar esa protección al desplegar.
+
+### Verificación HTTP local sin consumir cuota
+
+Con MongoDB local activo y el build generado, iniciar un servidor con el transporte de prueba (usar una base exclusiva de verificación):
+
+```bash
+MONGODB_URI=mongodb://127.0.0.1:27017/fraudlens_ai_verification \
+GROQ_API_KEY=fraudlens-test-only-key \
+NODE_OPTIONS="--import=$PWD/apps/web/tests/fixtures/groq-transport.mjs" \
+npm run start --workspace @fraudlens/web -- --hostname 127.0.0.1 --port 3017
+```
+
+En otra terminal:
+
+```bash
+TEST_BASE_URL=http://127.0.0.1:3017 TEST_AI_EVALUATIONS=1 TEST_GROQ_FIXTURE=1 \
+node --conditions=react-server --test apps/web/tests/transaction-evaluations.integration.test.mjs
+```
+
+La fixture intercepta exclusivamente HTTP hacia Groq dentro del proceso de prueba; conserva el adapter/SDK, el endpoint y MongoDB reales. Solo se carga mediante el comando anterior y exige la clave ficticia dedicada. Verifica persistencia/consulta, ambos estados, usuarios aislados, exclusión de rechazos y de transacciones futuras/repetidas, país distinto y fallo del proveedor. No prueba calidad de inferencia ni acceso real a Groq. Crea documentos en esa base y no elimina datos.
