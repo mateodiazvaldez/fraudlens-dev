@@ -7,6 +7,7 @@ export type TransactionInput = {
   operation_type: "PURCHASE";
   merchant: string;
   country: string;
+  card_country: string;
   cardholder_present: boolean;
   card_present: boolean;
 };
@@ -49,6 +50,9 @@ export function validateTransactionInput(input: unknown): ValidationResult {
   if (typeof value.country !== "string" || !/^[A-Z]{2}$/.test(value.country)) {
     errors.country = "Expected a two-letter uppercase country code";
   }
+  if (typeof value.card_country !== "string" || !/^[A-Z]{2}$/.test(value.card_country)) {
+    errors.card_country = "Expected a two-letter uppercase country code";
+  }
   for (const field of ["cardholder_present", "card_present"] as const) {
     if (typeof value[field] !== "boolean") errors[field] = "Expected a boolean";
   }
@@ -63,6 +67,7 @@ export function validateTransactionInput(input: unknown): ValidationResult {
     operation_type: "PURCHASE",
     merchant: (value.merchant as string).trim(),
     country: value.country as string,
+    card_country: value.card_country as string,
     cardholder_present: value.cardholder_present as boolean,
     card_present: value.card_present as boolean,
   } };

@@ -2,6 +2,7 @@ import { parseEvaluationPagination } from "@/server/services/evaluation-paginati
 import { listTransactionEvaluations } from "@/server/services/list-transaction-evaluations";
 import { evaluateTransaction } from "@/server/services/evaluate-transaction";
 import { validateTransactionInput } from "@/server/services/transaction-evaluation-input";
+import { logServerError } from "@/lib/server-errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,8 +25,8 @@ export async function POST(request: Request) {
     const evaluation = await evaluateTransaction(result.data);
     return Response.json(evaluation, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch {
-    // Do not expose database errors or transaction data.
-    return Response.json({ error: "Unable to persist transaction evaluation" }, { status: 503 });
+    // No exponer datos de transacciones ni errores internos de DB o del proveedor.
+    return Response.json({ error: "Unable to evaluate transaction" }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
 }
 
@@ -37,7 +38,8 @@ export async function GET(request: Request) {
   try {
     const page = await listTransactionEvaluations(pagination.limit, pagination.offset);
     return Response.json(page, { headers: { "Cache-Control": "no-store" } });
-  } catch {
+  } catch (error) {
+    logServerError("transaction_history_failed", "history_list", error);
     return Response.json({ error: "Unable to retrieve transaction evaluations" }, { status: 503 });
   }
 }

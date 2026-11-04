@@ -8,6 +8,7 @@ FraudLens usa **Vercel** para alojar la aplicación y **MongoDB Atlas** para per
 flowchart LR
     Client[Sistema cliente / navegador] --> Next[Next.js en Vercel: frontend y API]
     Next -->|Mongoose / MONGODB_URI| Atlas[MongoDB Atlas]
+    Next -->|DecisionModel / AI SDK| Groq[Groq]
     Local[Next.js local] -->|Mongoose / MONGODB_URI local| Compose[MongoDB en Docker Compose]
 ```
 
@@ -37,11 +38,11 @@ flowchart LR
 
 Los conectores actúan con los permisos de las cuentas conectadas y las autorizaciones del usuario. Son herramientas del asistente para administrar infraestructura; las solicitudes de la aplicación acceden directamente a MongoDB mediante Mongoose. No es necesario que el asistente esté conectado para que FraudLens funcione.
 
-Estos conectores son independientes de **Vercel AI SDK / Groq**, preparados para futuras evaluaciones de IA detrás de un contrato propio. Se conserva también el helper previo de TypeSafe. El endpoint actual devuelve un resultado fijo y no hace inferencia.
+Estos conectores son independientes de **Vercel AI SDK / Groq**, usados por CU-01 para evaluar transacciones detrás del contrato propio `DecisionModel`. Se conserva también el helper previo de TypeSafe. El endpoint actual consulta el historial aprobado y ejecuta inferencia en Groq.
 
 ## Límites actuales
 
-La pantalla inicial y `/api/health` no acceden a MongoDB ni a TypeSafe. CU-01 (`POST /api/transaction-evaluations`) valida el JSON, llama al servicio de evaluación y persiste un documento TransactionEvaluation mediante connectDB(). Devuelve el ID autogenerado y el resultado fijo solo después de una escritura exitosa. No invoca TypeSafe ni ejecuta reglas.
+La pantalla inicial y `/api/health` no acceden a MongoDB ni a TypeSafe. CU-01 (`POST /api/transaction-evaluations`) valida el JSON con `card_country` obligatorio, consulta el historial del usuario, obtiene y valida la decisión de Groq y persiste un documento TransactionEvaluation mediante connectDB(). Devuelve el ID y el resultado solo después de una escritura exitosa. No invoca TypeSafe ni ejecuta un motor de reglas. Los fallos de DB, configuración o inferencia devuelven `503` sin fabricar resultados.
 
 ## Persistencia
 
@@ -53,11 +54,11 @@ Compose usa un volumen persistente y solo expone MongoDB en loopback. No configu
 
 La primera etapa usa un puerto propio `DecisionModel`, definido en `src/lib/ai/decision-model.ts`, y un adapter de Groq directo en `src/lib/ai/groq.ts`. `getAiModel()` en `src/lib/ai/index.ts` compone la implementación: solo ahí se elige el proveedor. Los consumidores no importan tipos de Groq ni del AI SDK.
 
-El contrato recibe entrada textual, instrucciones y un esquema de salida aportados por el consumidor. El esquema contiene JSON Schema y una función `parse(unknown)` que valida y devuelve la salida tipada o lanza un error; deben mantenerse coherentes. El adapter usa salida estructurada del AI SDK y rechaza respuestas inválidas. Este puerto no es todavía un servicio de evaluación de fraude: no hay un contrato de decisión de negocio, prompts, reglas ni umbrales nuevos.
+El contrato recibe entrada textual, instrucciones y un esquema de salida aportados por el consumidor. El esquema contiene JSON Schema y una función `parse(unknown)` que valida y devuelve la salida tipada o lanza un error; deben mantenerse coherentes. El adapter usa salida estructurada del AI SDK y rechaza respuestas inválidas. `assessTransactionRisk()` es el consumidor de negocio: define el prompt/esquema `transaction-risk-v1` y admite solo `APPROVED` o `REJECTED`. Evalúa montos y comercios inusuales, y compara `country` con `card_country` (emisión de la tarjeta). El modelo decide directamente sin umbral numérico configurado.
 
 `GROQ_API_KEY` se valida solo al pedir la instancia; `GROQ_MODEL` permite elegir otro modelo compatible y usa `openai/gpt-oss-20b` por defecto. Importar, construir o compilar no hace inferencia. Únicamente `decide()` envía una solicitud; tiene timeout de 30 segundos, sin reintentos automáticos ni fallback a resultados inventados. Los errores públicos no exponen mensajes ni cuerpos del proveedor. La configuración está documentada en README, no en `.env.example`, por decisión del usuario.
 
-La inferencia sigue **desconectada de HTTP y MongoDB**. Los tests usan el SDK con transporte HTTP simulado, sin credenciales reales ni consumo de cuota. Una salida válida no prueba calidad predictiva ni calibración. La disponibilidad y cuota gratuita deben confirmarse en la cuenta de Groq; no se hicieron solicitudes reales ni se validó un modelo para fraude.
+La inferencia está **conectada al POST y a MongoDB**. Los tests unitarios usan el SDK con transporte HTTP simulado, sin credenciales reales ni consumo de cuota. El test HTTP con `TEST_BASE_URL` requiere además `TEST_AI_EVALUATIONS=1`, ya que el servidor configurado puede consumir cuota. Una salida válida no prueba calidad predictiva ni calibración. La disponibilidad y cuota gratuita deben confirmarse en la cuenta de Groq; no se hicieron solicitudes reales ni se validó un modelo para fraude.
 
 Se conserva `getDecisionModel()` en `src/lib/ai/typesafe.ts` sin cambios: crea el modelo de decisiones Jev con configuración diferida, pero no implementa el nuevo puerto. Un futuro adapter de TypeSafe deberá traducir ese contrato sin exponer la API experimental al consumidor. No hay selección automática entre proveedores.
 
@@ -71,7 +72,15 @@ Se conserva `getDecisionModel()` en `src/lib/ai/typesafe.ts` sin cambios: crea e
 
 ## CU-01
 
-El contrato y su validación están en `src/server/services/transaction-evaluation-input.ts`; la ruta gestiona HTTP y el servicio coordina la persistencia. El modelo está en `src/server/models/transaction-evaluation.ts`, colección `transaction_evaluations`. Se almacena la entrada completa junto con risk_score, decision, rules_applied y timestamps. Cada solicitud crea una evaluación independiente; no hay deduplicación, autenticación ni motor de reglas en esta etapa.
+El contrato y su validación están en `src/server/services/transaction-evaluation-input.ts`; la ruta gestiona HTTP y el servicio coordina la persistencia. El modelo está en `src/server/models/transaction-evaluation.ts`, colección `transaction_evaluations`. Se almacena la entrada completa junto con risk_score, decision, reasons, signals, rules_applied (vacío), model_id, assessment_version, history_count y timestamps. Cada solicitud crea una evaluación independiente; no hay deduplicación, autenticación ni motor de reglas en esta etapa.
+
+## Contexto para la decisión
+
+`loadApprovedTransactionHistory()` consulta únicamente el mismo `user_id` con `decision: APPROVED`, `transaction_datetime` anterior a la transacción actual y distinto `transaction_id`. Usa un índice compuesto por usuario, decisión, fecha e ID; limita a 50 documentos, ordenados por fecha e ID descendentes. Es una muestra acotada, no el historial completo. Se omiten identificadores al construir el contexto para el proveedor.
+
+Los montos se comparan solo en igual moneda. Sin antecedentes el modelo decide y devuelve `INSUFFICIENT_HISTORY`. `COUNTRY_MISMATCH` se valida contra los países de la entrada. No hay una regla de rechazo automático para esas señales. `risk_score` es una estimación no calibrada y no controla un umbral. La salida se valida antes de guardar; no hay fallback al mock. El timeout del adapter sigue siendo de 30 segundos, sin reintentos automáticos.
+
+Los registros anteriores con `BLOCK` se conservan para el GET y no participan del contexto aprobado. No se ejecuta migración ni reevaluación de documentos existentes.
 
 ## Consulta del historial
 
