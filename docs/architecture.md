@@ -12,7 +12,7 @@ flowchart LR
     Local[Next.js local] -->|Mongoose / MONGODB_URI local| Compose[MongoDB en Docker Compose]
 ```
 
-Un monorepo npm contiene una única aplicación desplegable en `apps/web`. Next.js App Router reúne el frontend React y los endpoints HTTP; las rutas que usan Mongoose se ejecutan con runtime Node.js. Frontend y backend se despliegan juntos en Vercel.
+Un monorepo npm contiene una única aplicación desplegable en `apps/web`. Next.js App Router reúne el frontend React y los endpoints HTTP; las rutas que usan Mongoose se ejecutan con runtime Node.js. La página de inicio monta un espacio cliente de evaluación e historial que consume las rutas existentes, sin mover decisiones antifraude al navegador. Frontend y backend se despliegan juntos en Vercel.
 
 | Entorno | Aplicación | Base de datos | Configuración |
 | --- | --- | --- | --- |

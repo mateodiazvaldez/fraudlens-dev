@@ -51,8 +51,8 @@ fraudlens/
 │   │   │   ├── api/health/        # Endpoint técnico de liveness
 │   │   │   ├── globals.css
 │   │   │   ├── layout.tsx
-│   │   │   └── page.tsx          # Pantalla de inicio mínima
-│   │   ├── components/           # Componentes compartidos (vacío)
+│   │   │   └── page.tsx          # Espacio de evaluación e historial
+│   │   ├── components/fraudlens/ # Interfaz de evaluación e historial
 │   │   ├── hooks/                # Hooks de React (vacío)
 │   │   ├── types/                # Tipos compartidos (vacío)
 │   │   ├── lib/
@@ -71,7 +71,7 @@ fraudlens/
 └── package-lock.json
 ```
 
-Las carpetas reservadas se conservan con `.gitkeep`; no implican decisiones sobre el dominio.
+La pantalla de inicio ofrece el espacio de trabajo de evaluación e historial conectado a `/api/transaction-evaluations`. El frontend no añade endpoints ni lógica de decisión propia; ver [la migración de interfaz](docs/design/frontend-migration.md). Las carpetas reservadas se conservan con `.gitkeep`; no implican decisiones sobre el dominio.
 
 ## Variables de entorno
 
