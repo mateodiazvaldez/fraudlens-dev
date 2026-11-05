@@ -88,7 +88,7 @@ a { color: inherit; }
 .pagination-actions { display: flex; gap: 8px; }
 .pagination .button-secondary { min-height: 36px; padding: 0 12px; font-size: 12px; }
 .page-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
-@media (max-width: 1100px) {
+@media (max-width: 1320px) {
   .workspace-grid { grid-template-columns: 1fr; }
   .evaluation-row { grid-template-columns: minmax(140px, 1.2fr) minmax(100px, 1fr) minmax(110px, 1fr) auto; }
   .evaluation-row > div:nth-child(4) { display: none; }
